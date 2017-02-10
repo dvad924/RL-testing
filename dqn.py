@@ -104,6 +104,7 @@ HIST = 100
 NEPISODES = 200
 Epsilon = 0.2
 Gamma = 0.9
+epsilon_decay = 0.995
 
 env = gym.make('CartPole-v0')
 mem = RandMem(HIST)
@@ -113,11 +114,13 @@ Q = buildmodel(env.observation_space.shape,env.action_space.n)
 
 init_mem(env,HIST,Epsilon,Q,mem)
 print "sampling for memory"
+
 for i_ep in xrange(NEPISODES):
     print "training"
     done = False
     state = env.reset() # initialize state
     n_steps= 1
+    env.render()
     while not done:
         state = state.reshape(1,1,4)
         # get next action
@@ -156,4 +159,6 @@ for i_ep in xrange(NEPISODES):
         Q.train_on_batch(inputs,targets)
     print "Episode length: {}".format(n_steps)
     print "Episode {} complete".format(i_ep)
+    Epsilon *= epsilon_decay
+    print Epsilon
     
