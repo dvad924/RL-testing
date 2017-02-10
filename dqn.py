@@ -32,7 +32,7 @@ def buildmodel(obs_shape,act_shape):
 
     print( model.summary())
 
-    adam = Adam(lr=1e-3)
+    adam = Adam(lr=1e-2)
     model.compile(loss='mse', optimizer=adam)
     return model
 
@@ -90,18 +90,18 @@ def init_mem(env,N,eps,Q,mem):
     mem.clear()
     s = env.reset()
     for _ in xrange(N):
-        s = s.reshape(1,1,4)
-        a = e_greedy_choice(eps, env.action_space.n, np.argmax(Q.predict(s)))
+        st = s.reshape(1,1,4)
+        a = e_greedy_choice(eps, env.action_space.n, np.argmax(Q.predict(st)))
         ns,r,done,_ = env.step(a)
-        ns = ns.reshape(1,1,4)
-        mem.add((s,a,r,ns,done))
+        ns = ns.reshape(1,4)
+        mem.add((s.reshape(1,4),a,r,ns,done))
         s = ns
         if done:
             s = env.reset()
         
 BATCH = 100
 HIST = 100
-NEPISODES = 200
+NEPISODES = 2000
 Epsilon = 0.2
 Gamma = 0.9
 epsilon_decay = 0.995
@@ -114,21 +114,21 @@ Q = buildmodel(env.observation_space.shape,env.action_space.n)
 
 init_mem(env,HIST,Epsilon,Q,mem)
 print "sampling for memory"
-
+maxlen = 0
 for i_ep in xrange(NEPISODES):
     print "training"
     done = False
     state = env.reset() # initialize state
     n_steps= 1
-    env.render()
+    loss = 0
     while not done:
         state = state.reshape(1,1,4)
         # get next action
         a = e_greedy_choice(Epsilon,env.action_space.n, np.argmax(Q.predict(state)))
         # get reward and next state
         nstate,r,done,_ = env.step(a)
-        nstate = nstate.reshape(1,1,4)
-        mem.add((state,a,r,nstate,done))
+        nstate = nstate.reshape(1,4)
+        mem.add((state.reshape(1,4),a,r,nstate,done))
 
         state = nstate
         
@@ -136,29 +136,45 @@ for i_ep in xrange(NEPISODES):
         #now sample minibatch
         minibatch = mem.sample(BATCH)
 
-        inputs = np.zeros((BATCH,state.shape[1],state.shape[2]))
+        inputs = np.zeros((BATCH,state.shape[0],state.shape[1]))
         targets = np.zeros((BATCH,env.action_space.n))
         
-        for i in xrange(BATCH):
-            s_t = minibatch[0][i]
-            a_t = minibatch[1][i]
-            r_t = minibatch[2][i]
-            s1_t = minibatch[3][i]
-            term = minibatch[4][i]
+        # for i in xrange(BATCH):
+        #     s_t = minibatch[0][i]
+        #     a_t = minibatch[1][i]
+        #     r_t = minibatch[2][i]
+        #     s1_t = minibatch[3][i]
+        #     term = minibatch[4][i]
 
-            inputs[i:i+1] = s_t
+        #     inputs[i:i+1] = s_t
             
-            targets[i] = Q.predict(s_t)
+        #     targets[i] = Q.predict(s_t)
 
-            Q_sa = targets[i]
+        #     Q_sa = targets[i]
             
-            if term:
-                targets[i,a_t] = r_t
-            else:
-                targets[i,a_t] = r_t + Gamma * np.max(Q_sa)
-        Q.train_on_batch(inputs,targets)
+        #     if term:
+        #         targets[i,a_t] = r_t
+        #     else:
+        #         targets[i,a_t] = r_t + Gamma * np.amax(Q_sa)
+
+        # Vectorized ?
+        inputs = minibatch[0]
+        term = minibatch[4]
+        targets = Q.predict(inputs)
+
+        Q_sa = targets
+        a_ts = minibatch[1]
+
+        tval = term == True
+        nval = term == False
+        Q_sa[tval, a_ts[tval]] = minibatch[2][tval]
+        Q_sa[nval, a_ts[nval]] = minibatch[2][nval] + Gamma * np.amax(Q_sa[nval],axis=1)
+
+        loss += Q.train_on_batch(inputs,targets)
+    print "Loss : {}".format(float(loss)/n_steps)
     print "Episode length: {}".format(n_steps)
     print "Episode {} complete".format(i_ep)
     Epsilon *= epsilon_decay
     print Epsilon
-    
+    maxlen = max(maxlen,n_steps)
+print "Maximum Length : ", maxlen
